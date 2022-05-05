@@ -1,5 +1,5 @@
 # MyBot 模板
-一个QQ频道机器人 [MyBot ](https://github.com/Chianne1025/QQChannelFramework)框架的模板工程
+一个QQ频道机器人框架 [MyBot](https://github.com/Chianne1025/QQChannelFramework) 的模板工程
 
 ### 依赖
 ```
