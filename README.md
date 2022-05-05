@@ -1,12 +1,16 @@
 # MyBot 模板
-一个[MyBot](https://github.com/Chianne1025/QQChannelFramework)框架的模板工程
+一个QQ频道机器人 [MyBot ](https://github.com/Chianne1025/QQChannelFramework)框架的模板工程
 
 ### 依赖
 ```
 - MyBot
+
+// 日志
 - Microsoft.Extensions.Logging
 - Microsoft.Extensions.Logging.Console
 - Serilog.Extensions.Logging.File
+
+// 数据库
 - Microsoft.EntityFrameworkCore
 - Npgsql.EntityFrameworkCore.PostgreSQL
 ```
