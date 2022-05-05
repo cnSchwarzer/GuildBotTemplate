@@ -11,6 +11,6 @@ namespace GuildBotTemplate.Modules;
 
 public class EchoModule : Module {
     public override async Task OnUserMessage(Message msg) {
-        
+        await api.GetMessageApi().SendTextMessageAsync(msg.ChannelId, msg.Content, msg.Id);
     }
 }
