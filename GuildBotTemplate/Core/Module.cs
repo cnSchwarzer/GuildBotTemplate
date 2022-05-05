@@ -13,10 +13,26 @@ namespace GuildBotTemplate {
             return Instances[typeof(T).Name] as T ?? throw new InvalidOperationException();
         }
 
+        /// <summary>
+        /// Get current bot user id
+        /// </summary>
         protected string botId => bot.BotId;
 
+        /// <summary>
+        /// Get a valid passive reference id
+        /// </summary>
+        protected string passive => bot.PassiveReferenceId;
+        
+        /// <summary>
+        /// Get logger for this module
+        /// </summary>
         protected readonly ILogger log;
-        protected internal QQChannelApi api => bot.api;
+        
+        /// <summary>
+        /// Get guild bot API instance
+        /// </summary>
+        protected internal QQChannelApi api => bot.Api;
+        
         internal GuildBot bot { private get; set; }
 
         protected Module() {

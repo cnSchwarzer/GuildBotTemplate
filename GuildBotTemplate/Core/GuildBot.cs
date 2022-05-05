@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
@@ -10,57 +11,77 @@ using QQChannelFramework.Models;
 using QQChannelFramework.Models.MessageModels;
 using QQChannelFramework.Models.WsModels;
 using GuildBotTemplate.Modules;
+using QQChannelFramework.Datas;
 
 namespace GuildBotTemplate {
     public class GuildBot {
         public static GuildBot Instance { get; private set; }
-        private ILogger _logger;
+        private readonly ILogger _logger;
 
         private bool _allModuleLoaded;
-        private List<Module> _modules = new();
+        private readonly List<Module> _modules = new();
         public string BotId { get; private set; }
 
-        public ChannelBot bot { get; private set; }
-        public QQChannelApi api { get; private set; }
+        private ConcurrentQueue<(DateTime Time, string Id)> _passiveIds = new();
+
+        public ChannelBot Bot { get; private set; }
+        public QQChannelApi Api { get; private set; }
 
         public GuildBot() {
             Instance = this;
 
             _logger = App.LogFactory.CreateLogger<GuildBot>();
 
-            api = new QQChannelApi(App.AccessInfo);
-            api.UseBotIdentity();
+            Api = new QQChannelApi(App.AccessInfo);
+            Api.UseBotIdentity();
 
             if (App.SandBox)
 #pragma warning disable CS0162
-                api.UseSandBoxMode();
+                Api.UseSandBoxMode();
 #pragma warning restore CS0162
 
-            bot = new ChannelBot(api);
-            bot.UsePrivateBot();
-            bot.RegisterAtMessageEvent();
-            bot.RegisterDirectMessageEvent();
-            bot.RegisterGuildMembersEvent();
-            bot.RegisterGuildsEvent();
-            bot.RegisterAuditEvent();
+            Bot = new ChannelBot(Api);
+            Bot.UsePrivateBot();
+            Bot.RegisterAtMessageEvent();
+            Bot.RegisterDirectMessageEvent();
+            Bot.RegisterGuildMembersEvent();
+            Bot.RegisterGuildsEvent();
+            Bot.RegisterAuditEvent();
+            Bot.RegisterMessageReactionEvent();
+            if (CommonState.PrivateBot)
+                Bot.RegisterUserMessageEvent(); 
 
-            bot.OnConnected += () => { _logger.LogInformation("连接成功"); };
-            bot.AuthenticationSuccess += () => { _logger.LogInformation("机器人已上线"); };
-            bot.AuthenticationError += () => { _logger.LogInformation("机器人鉴权失败"); };
-            bot.OnError += ex => { _logger.LogError(ex, "机器人出现错误"); };
-            bot.OnClose += () => { _logger.LogInformation("连接关闭"); };
-            bot.ConnectBreak += () => { _logger.LogInformation("连接断开"); };
-            bot.Reconnecting += () => { _logger.LogInformation("主动重连中"); };
+            Bot.OnConnected += () => { _logger.LogInformation("连接成功"); };
+            Bot.AuthenticationSuccess += () => { _logger.LogInformation("机器人已上线"); };
+            Bot.AuthenticationError += () => { _logger.LogInformation("机器人鉴权失败"); };
+            Bot.OnError += ex => { _logger.LogError(ex, "机器人出现错误"); };
+            Bot.OnClose += () => { _logger.LogInformation("连接关闭"); };
+            Bot.ConnectBreak += () => { _logger.LogInformation("连接断开"); };
+            Bot.Reconnecting += () => { _logger.LogInformation("主动重连中"); };
 
-            bot.ReceivedAtMessage += BotOnReceivedAtMessage;
-            bot.ReceivedDirectMessage += BotOnReceivedDirectMessage;
-            bot.NewMemberJoin += BotOnNewMemberJoin;
-            bot.BotAreAddedToTheGuild += BotOnAddedToGuild;
-            bot.MessageAuditPass += audit => { _logger.LogInformation($"消息审核通过 {audit.AuditId}"); };
-            bot.MessageAuditReject += audit => { _logger.LogInformation($"消息审核不通过 {audit.AuditId}"); };
-            bot.BotBeRemoved += BotOnRemoved;
+            Bot.ReceivedAtMessage += BotOnReceivedAtMessage;
+            Bot.ReceivedDirectMessage += BotOnReceivedDirectMessage; 
+            Bot.ReceivedUserMessage += BotOnReceivedUserMessage;
+            Bot.NewMemberJoin += BotOnNewMemberJoin;
+            Bot.BotAreAddedToTheGuild += BotOnAddedToGuild;
+            Bot.MessageAuditPass += audit => { _logger.LogInformation($"消息审核通过 {audit.AuditId}"); };
+            Bot.MessageAuditReject += audit => { _logger.LogInformation($"消息审核不通过 {audit.AuditId}"); };
+            Bot.BotBeRemoved += BotOnRemoved;
+            Bot.MessageReactionIsAdded += BotOnMessageReactionIsAdded;
+            Bot.MessageReactionIsRemoved += BotOnMessageReactionIsRemoved;
 
             Console.CancelKeyPress += OnConsoleCancelKeyPress;
+        }
+
+        public string PassiveReferenceId {
+            get {
+                while (_passiveIds.Any()) {
+                    if (!_passiveIds.TryPeek(out var val)) continue;
+                    if (DateTime.Now - val.Time <= TimeSpan.FromMinutes(5)) return val.Id;
+                    while (!_passiveIds.TryDequeue(out var _)) { }
+                }
+                return "00";
+            }
         }
 
         private async void BotOnAddedToGuild(WsGuild guild) {
@@ -136,7 +157,7 @@ namespace GuildBotTemplate {
         private void OnConsoleCancelKeyPress(object sender, ConsoleCancelEventArgs e) {
             _logger.LogInformation("关闭中");
             Task.Run(async () => {
-                await bot.OfflineAsync().ConfigureAwait(false);
+                await Bot.OfflineAsync().ConfigureAwait(false);
                 foreach (var module in _modules) {
                     await module.OnModuleUnload().ConfigureAwait(false);
                 }
@@ -147,6 +168,9 @@ namespace GuildBotTemplate {
         private async void BotOnReceivedDirectMessage(Message message) {
             if (!_allModuleLoaded)
                 return;
+            
+            _passiveIds.Enqueue((DateTime.Now, message.Id));
+            
             if (_logger.IsEnabled(LogLevel.Trace))
                 _logger.LogTrace($"DirectMessage {message.Author.UserName}: {message.Content}");
             foreach (var module in _modules) {
@@ -163,6 +187,8 @@ namespace GuildBotTemplate {
         private async void BotOnReceivedUserMessage(Message message) {
             if (!_allModuleLoaded)
                 return;
+            _passiveIds.Enqueue((DateTime.Now, message.Id));
+            
             // Remove At
             RemoveAtTags(message);
 
@@ -211,7 +237,8 @@ namespace GuildBotTemplate {
         private async void BotOnReceivedAtMessage(Message message) {
             if (!_allModuleLoaded)
                 return;
-
+            _passiveIds.Enqueue((DateTime.Now, message.Id));
+            
             if (_logger.IsEnabled(LogLevel.Trace))
                 _logger.LogTrace($"AtMsg {message.Author.UserName}: {message.Content}");
             // Remove At
@@ -234,9 +261,9 @@ namespace GuildBotTemplate {
 
         public async Task Run() {
             try {
-                await bot.OnlineAsync().ConfigureAwait(false);
+                await Bot.OnlineAsync().ConfigureAwait(false);
 
-                var info = await api.GetUserApi().GetCurrentUserAsync();
+                var info = await Api.GetUserApi().GetCurrentUserAsync();
                 BotId = info.Id;
             } catch (Exception exception) {
                 _logger.LogError(exception, "启动异常");
